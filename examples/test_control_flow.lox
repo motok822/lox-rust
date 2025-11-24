@@ -1,0 +1,23 @@
+// テスト1: if-else文
+var score = 85;
+if (score >= 90) {
+    print "Grade: A";
+} else if (score >= 80) {
+    print "Grade: B";  // これが実行される
+} else {
+    print "Grade: C";
+}
+
+// テスト2: 論理演算子
+var age = 25;
+var hasLicense = true;
+if (age >= 18 and hasLicense) {
+    print "Can drive";  // これが実行される
+}
+
+// テスト3: or演算子
+var isWeekend = false;
+var isHoliday = true;
+if (isWeekend or isHoliday) {
+    print "No work today!";  // これが実行される
+}

@@ -1,0 +1,26 @@
+// テスト1: ブロックスコープ
+var a = "global";
+{
+    var a = "local";
+    print a;  // local
+}
+print a;      // global
+
+// テスト2: ネストされたスコープ
+var x = 1;
+{
+    var x = 2;
+    {
+        var x = 3;
+        print x;  // 3
+    }
+    print x;      // 2
+}
+print x;          // 1
+
+// テスト3: forループのスコープ
+for (var i = 0; i < 3; i = i + 1) {
+    var temp = i * 10;
+    print temp;
+}
+// print temp;  // エラー: tempは定義されていない

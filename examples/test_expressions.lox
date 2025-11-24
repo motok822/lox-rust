@@ -1,0 +1,23 @@
+// テスト1: 算術演算
+print 10 + 5;      // 15
+print 10 - 5;      // 5
+print 10 * 5;      // 50
+print 10 / 5;      // 2
+
+// テスト2: 比較演算
+print 10 > 5;      // true
+print 10 < 5;      // false
+print 10 >= 10;    // true
+print 10 <= 5;     // false
+print 10 == 10;    // true
+print 10 != 5;     // true
+
+// テスト3: 複雑な式
+var result = (10 + 5) * 2 - 3;
+print result;      // 27
+
+// テスト4: 真偽値
+var isTrue = true;
+var isFalse = false;
+print !isTrue;     // false
+print !isFalse;    // true

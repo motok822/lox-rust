@@ -1,0 +1,46 @@
+// テスト1: 簡単な関数
+fun greet(name) {
+    print "Hello, " + name + "!";
+}
+
+greet("Alice");
+greet("Bob");
+
+// テスト2: 値を返す関数
+fun add(a, b) {
+    return a + b;
+}
+
+print add(5, 3);      // 8
+print add(10, 20);    // 30
+
+// テスト3: フィボナッチ数列
+fun fib(n) {
+    if (n <= 1) return n;
+    return fib(n - 2) + fib(n - 1);
+}
+
+print "Fibonacci numbers:";
+for (var i = 0; i < 10; i = i + 1) {
+    print fib(i);
+}
+
+// テスト4: 階乗
+fun factorial(n) {
+    if (n <= 1) return 1;
+    return n * factorial(n - 1);
+}
+
+print "5! = " + factorial(5);  // 120
+
+// テスト5: 最大値を返す関数
+fun max(a, b) {
+    if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+print max(10, 20);  // 20
+print max(50, 30);  // 50

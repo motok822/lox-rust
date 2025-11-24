@@ -1,0 +1,14 @@
+// テスト1: clock()関数（ネイティブ関数）
+var start = clock();
+print "Start time: " + start;
+
+// 簡単なループで時間を消費
+var sum = 0;
+for (var i = 0; i < 1000; i = i + 1) {
+    sum = sum + i;
+}
+
+var end = clock();
+print "End time: " + end;
+print "Elapsed: " + (end - start) + " seconds";
+print "Sum: " + sum;

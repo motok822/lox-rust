@@ -1,0 +1,22 @@
+// テスト1: 九九の表（一部）
+print "Multiplication table:";
+for (var i = 1; i <= 5; i = i + 1) {
+    for (var j = 1; j <= 5; j = j + 1) {
+        print i * j;
+    }
+}
+
+// テスト2: ネストされたif文とループ
+print "Prime-like check:";
+for (var num = 2; num <= 10; num = num + 1) {
+    var isPrime = true;
+    for (var div = 2; div < num; div = div + 1) {
+        if (num % div == 0) {
+            isPrime = false;
+            break;
+        }
+    }
+    if (isPrime) {
+        print num;
+    }
+}
