@@ -7,8 +7,8 @@ use crate::token::Value;
 
 #[derive(Debug, Clone)]
 pub struct Environment{
-    values: RefCell<HashMap<String, Value>>,
-    enclosing: Option<Rc<Environment>>,
+    pub values: RefCell<HashMap<String, Value>>,
+    pub enclosing: Option<Rc<Environment>>,
 }
 
 impl Environment {

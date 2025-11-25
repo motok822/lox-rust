@@ -7,3 +7,4 @@ pub mod lox;
 pub mod environment;
 pub mod error;
 pub mod callable;
+pub mod resolver;

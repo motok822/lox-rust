@@ -1,4 +1,5 @@
 use crate::token::{Token, LiteralType};
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone)]
 pub struct VarDecl {
@@ -175,7 +176,7 @@ pub trait ExprVisitor<R> {
 
 
 // Main Expr enum containing all expression types
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Binary(Binary),
     Grouping(Grouping),
@@ -186,6 +187,51 @@ pub enum Expr {
     Call(Call),
     OR(OR),
     AND(AND),
+}
+
+impl Eq for Expr {}
+
+impl Hash for Expr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Expr::Binary(e) => {
+                0u8.hash(state);
+                e.hash(state);
+            }
+            Expr::Grouping(e) => {
+                1u8.hash(state);
+                e.hash(state);
+            }
+            Expr::Literal(e) => {
+                2u8.hash(state);
+                e.hash(state);
+            }
+            Expr::Unary(e) => {
+                3u8.hash(state);
+                e.hash(state);
+            }
+            Expr::Variable(e) => {
+                4u8.hash(state);
+                e.hash(state);
+            }
+            Expr::Assignment(e) => {
+                5u8.hash(state);
+                e.hash(state);
+            }
+            Expr::Call(e) => {
+                6u8.hash(state);
+                e.hash(state);
+            }
+            Expr::OR(e) => {
+                7u8.hash(state);
+                e.hash(state);
+            }
+            Expr::AND(e) => {
+                8u8.hash(state);
+                e.hash(state);
+            }
+        }
+    }
 }
 
 impl Expr {
@@ -204,57 +250,109 @@ impl Expr {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Call{
     pub callee: Box<Expr>,
     pub paren: Token,
     pub arguments: Vec<Expr>,
 }
+
+impl Eq for Call {}
+
+impl Hash for Call {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.callee.hash(state);
+        self.paren.hash(state);
+        self.arguments.hash(state);
+    }
+}
+
 impl Call {
     pub fn new(callee: Box<Expr>, paren: Token, arguments: Vec<Expr>) -> Self {
         Self { callee, paren, arguments }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OR {
     pub left: Box<Expr>,
     pub operator: Token,
     pub right: Box<Expr>,
 }
+
+impl Eq for OR {}
+
+impl Hash for OR {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.left.hash(state);
+        self.operator.hash(state);
+        self.right.hash(state);
+    }
+}
+
 impl OR {
     pub fn new(left: Box<Expr>, operator: Token, right: Box<Expr>) -> Self {
         Self { left, operator, right }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AND {
     pub left: Box<Expr>,
     pub operator: Token,
     pub right: Box<Expr>,
 }
+
+impl Eq for AND {}
+
+impl Hash for AND {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.left.hash(state);
+        self.operator.hash(state);
+        self.right.hash(state);
+    }
+}
+
 impl AND {
     pub fn new(left: Box<Expr>, operator: Token, right: Box<Expr>) -> Self {
         Self { left, operator, right }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Assignment {
     pub name: Token,
     pub value: Box<Expr>,
 }
+
+impl Eq for Assignment {}
+
+impl Hash for Assignment {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.value.hash(state);
+    }
+}
+
 impl Assignment {
     pub fn new(name: Token, value: Box<Expr>) -> Self {
         Self { name, value }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Variable {
     pub name: Token,
 }
+
+impl Eq for Variable {}
+
+impl Hash for Variable {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
 impl Variable {
     pub fn new(name: Token) -> Self {
         Self { name }
@@ -262,11 +360,21 @@ impl Variable {
 }
 
 // Binary expression: left operator right
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Binary {
     pub left: Box<Expr>,
     pub operator: Token,
     pub right: Box<Expr>,
+}
+
+impl Eq for Binary {}
+
+impl Hash for Binary {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.left.hash(state);
+        self.operator.hash(state);
+        self.right.hash(state);
+    }
 }
 
 impl Binary {
@@ -276,9 +384,17 @@ impl Binary {
 }
 
 // Grouping expression: ( expression )
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Grouping {
     pub expression: Box<Expr>,
+}
+
+impl Eq for Grouping {}
+
+impl Hash for Grouping {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.expression.hash(state);
+    }
 }
 
 impl Grouping {
@@ -288,9 +404,17 @@ impl Grouping {
 }
 
 // Literal expression: numbers, strings, booleans, nil
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Literal {
     pub value: LiteralType,
+}
+
+impl Eq for Literal {}
+
+impl Hash for Literal {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.value.hash(state);
+    }
 }
 
 impl Literal {
@@ -300,10 +424,19 @@ impl Literal {
 }
 
 // Unary expression: operator right
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Unary {
     pub operator: Token,
     pub right: Box<Expr>,
+}
+
+impl Eq for Unary {}
+
+impl Hash for Unary {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.operator.hash(state);
+        self.right.hash(state);
+    }
 }
 
 impl Unary {

@@ -49,11 +49,12 @@ pub struct LoxFunction {
     name: String,
     params: Vec<String>,
     body: Vec<Stmt>,
+    closure: Rc<Environment>,
 }
 impl LoxFunction {
     /// 新しいLoxFunctionを作成する
-    pub fn new(name: String, params: Vec<String>, body: Vec<Stmt>) -> Self {
-        Self { name, params, body }
+    pub fn new(name: String, params: Vec<String>, body: Vec<Stmt>, closure: Rc<Environment>) -> Self {
+        Self { name, params, body, closure }
     }
 }
 
@@ -64,8 +65,8 @@ impl Callable for LoxFunction {
 
     fn call(&self, arguments: Vec<Value>, interpreter: Option<RefCell<Interpreter>>) -> Result<Value> {
         if let Some(interpreter) = interpreter {
-            // 関数内部用の環境を作成
-            let env = Rc::new(Environment::new(Some(Rc::new(interpreter.borrow().environment.as_ref().clone()))));
+            // 関数内部用の環境を作成（クロージャを親として使う）
+            let env = Rc::new(Environment::new(Some(Rc::clone(&self.closure))));
             for (param, arg) in self.params.iter().zip(arguments.into_iter()) {
                 env.define(param.clone(), arg);
             }

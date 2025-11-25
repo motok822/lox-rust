@@ -3,6 +3,9 @@ use crate::parser::Parser;
 use crate::interpreter::Interpreter;
 use crate::error::RuntimeError;
 use crate::token::Token;
+use crate::resolver::Resolver;
+use std::rc::Rc;
+use std::cell::RefCell;
 use std::{
     env,
     fs,
@@ -13,7 +16,7 @@ use std::{
 pub struct Lox{
     had_error: bool,
     had_runtime_error: bool,
-    interpreter: Interpreter,
+    interpreter: Rc<RefCell<Interpreter>>,
 }
 
 impl Lox {
@@ -21,7 +24,7 @@ impl Lox {
         Self {
             had_error: false,
             had_runtime_error: false,
-            interpreter: Interpreter::new(),
+            interpreter: Rc::new(RefCell::new(Interpreter::new())),
         }
     }
 
@@ -104,7 +107,9 @@ impl Lox {
         if self.had_error {
             return;
         }
-        self.interpreter.interpret(&statements);
+        let mut resolver = Resolver::new(self.interpreter.clone());
+        resolver.resolve_statements(&statements);
+        self.interpreter.borrow_mut().interpret(&statements);
     }
 
     pub fn error(&mut self, line: usize, message: &str){

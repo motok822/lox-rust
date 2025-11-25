@@ -1,4 +1,5 @@
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use crate::callable::LoxCallable;
 
 /// Runtime value type for the interpreter
@@ -23,7 +24,7 @@ impl fmt::Display for Value {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 
 pub enum TokenType {
     LEFT_PAREN,
@@ -72,7 +73,7 @@ pub enum TokenType {
     EOF,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LiteralType{
     String(String),
     Number(f64),
@@ -80,15 +81,50 @@ pub enum LiteralType{
     Nil,
 }
 
-#[derive(Debug, Clone)]
+impl Eq for LiteralType {}
+
+impl Hash for LiteralType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            LiteralType::String(s) => {
+                0u8.hash(state);
+                s.hash(state);
+            }
+            LiteralType::Number(n) => {
+                1u8.hash(state);
+                n.to_bits().hash(state);
+            }
+            LiteralType::Bool(b) => {
+                2u8.hash(state);
+                b.hash(state);
+            }
+            LiteralType::Nil => {
+                3u8.hash(state);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Object;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token{
     pub type_: TokenType,
     pub lexeme: String,
     pub line: usize,
     pub literal: Option<LiteralType>,
+}
+
+impl Eq for Token {}
+
+impl Hash for Token {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.type_.hash(state);
+        self.lexeme.hash(state);
+        self.line.hash(state);
+        self.literal.hash(state);
+    }
 }
 
 impl Token {

@@ -7,6 +7,7 @@ mod scanner;
 mod error;
 mod environment;
 mod callable;
+mod resolver;
 use std::env;
 use std::process;
 use crate::lox::Lox;

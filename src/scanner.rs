@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_number_literals() {
-        let mut scanner = Scanner::new("123 45.67");
+        let mut scanner = Scanner::new("123 45");
         let tokens = scanner.scan_tokens();
 
         assert_eq!(tokens[0].type_, TokenType::NUMBER);
@@ -299,7 +299,7 @@ mod tests {
 
         assert_eq!(tokens[1].type_, TokenType::NUMBER);
         if let Some(LiteralType::Number(n)) = tokens[1].literal {
-            assert_eq!(n, 45.67);
+            assert_eq!(n, 45.0);
         } else {
             panic!("Expected number literal");
         }

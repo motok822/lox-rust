@@ -7,11 +7,13 @@ use crate::environment::Environment;
 use crate::token::{LiteralType, Token, TokenType, Value};
 use crate::expr::{Stmt, FunctionStmt};
 use crate::callable::{LoxFunction, create_clock_function};
+use std::collections::HashMap;
 
 /// Interpreter that evaluates expressions using the Visitor pattern
 #[derive(Clone)]
 pub struct Interpreter{
     pub environment: Rc<Environment>,
+    pub locals: HashMap<Expr, usize>,
 }
 
 impl Interpreter {
@@ -26,6 +28,7 @@ impl Interpreter {
 
         Self {
             environment,
+            locals: HashMap::new(),
         }
     }
 
@@ -45,9 +48,7 @@ impl Interpreter {
     }
 
     pub fn execute_block(&mut self, statements: &Vec<Stmt>, env: Rc<Environment>) -> Result<()> {
-        // 現在のenvironmentをenclosingとして持つ新しいenvironmentを作成
-        let new_env = Rc::new(Environment::new(Some(env)));
-        let previous = std::mem::replace(&mut self.environment, new_env);
+        let previous = std::mem::replace(&mut self.environment, env);
 
         // ブロック内のステートメントを実行
         let result = (|| {
@@ -78,6 +79,37 @@ impl Interpreter {
             _ => format!("{}", value),
         }
     }
+
+    pub fn resolve(&mut self, expr: Expr, depth: usize) {
+        self.locals.insert(expr.clone(), depth);
+    }
+
+    pub fn look_up_variable(&self, name: &String, expr: &Expr) -> Result<Value> {
+        if let Some(distance) = self.locals.get(expr) {
+            self.get_at(*distance, &name)
+        } else {
+            self.environment.get(&name)
+        }
+    }
+
+    fn get_at(&self, distance: usize, name: &str) -> Result<Value> {
+        self.ancestor(distance).get(name)
+    }
+
+    fn ancestor(&self, distance: usize) -> Rc<Environment> {
+        let mut environment = Rc::clone(&self.environment);
+        for _ in 0..distance {
+            let enclosing = environment.enclosing.as_ref().unwrap();
+            environment = Rc::clone(enclosing);
+        }
+        environment
+    }
+
+    fn assign_at(&mut self, distance: usize, name: &Token, value: Value) -> Result<()> {
+        let env = self.ancestor(distance);
+        env.put(&name.lexeme, value)
+    }
+
 
     /// Helper: Check if a value is truthy (Lox semantics: nil and false are falsey)
     fn is_truthy(&self, value: &Value) -> bool {
@@ -120,12 +152,12 @@ impl StmtVisitor<Result<Value>> for Interpreter {
         } else {
             Value::Nil
         };
-
         self.environment.define(var_decl.name.lexeme.clone(), value.clone());
         Ok(value)
     }
     fn visit_block_stmt(&mut self, block: &crate::expr::Block) -> Result<Value> {
-        self.execute_block(&block.statements, Rc::clone(&self.environment))?;
+        let new_env = Rc::new(Environment::new(Some(Rc::clone(&self.environment))));
+        self.execute_block(&block.statements, new_env)?;
         Ok(Value::Nil)
     }
     fn visit_if_stmt(&mut self, if_stmt: &IfStatement) -> Result<Value> {
@@ -235,7 +267,7 @@ impl StmtVisitor<Result<Value>> for Interpreter {
         let body = (*function_stmt.body).clone();
 
         let lox_function = LoxFunction::new(
-            func_name.clone(), params, body
+            func_name.clone(), params, body, Rc::clone(&self.environment)
         );
         self.environment.define(
             func_name,
@@ -398,18 +430,18 @@ impl ExprVisitor<Result<Value>> for Interpreter {
         }
     }
     fn visit_variable_expr(&mut self, expr: &crate::expr::Variable) -> Result<Value> {
-        match self.environment.get(&expr.name.lexeme) {
-            Ok(value) => Ok(value),
-            Err(_) => Err(Error::RuntimeError(RuntimeError::new(
-                expr.name.clone(),
-                format!("Undefined variable '{}'.", expr.name.lexeme),
-            ))),
-        }
+        let name = &expr.name.lexeme;
+        return self.look_up_variable(name, &Expr::Variable(expr.clone()));
     }
     fn visit_assignment_expr(&mut self, expr: &crate::expr::Assignment) -> Result<Value> {
         let value = self.evaluate(&expr.value)?;
-        self.environment.put(&expr.name.lexeme, value.clone())?;
-        Ok(value)
+        let distance = self.locals.get(&Expr::Assignment(expr.clone()));
+        if let Some(distance) = distance {
+            self.assign_at(*distance, &expr.name, value.clone())?;
+        } else {
+            self.environment.put(&expr.name.lexeme, value.clone())?;
+        }
+        Ok(value)  
     }
     fn visit_or_expr(&mut self, expr: &crate::expr::OR) -> Result<Value> {
         let left = self.evaluate(&expr.left)?;
