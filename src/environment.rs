@@ -49,4 +49,24 @@ impl Environment {
             format!("Undefined variable '{}'.", name),
         )))
     }
+
+    fn ancestor(&self, distance: usize) -> Rc<Environment> {
+        let mut environment = Rc::new(self.clone());
+        for _ in 0..distance {
+            if let Some(enclosing) = &environment.enclosing {
+                environment = Rc::clone(enclosing);
+            }
+        }
+        environment
+    }
+
+    pub fn assign_at(&self, distance: usize, name: &str, value: Value) -> Result<()> {
+        let environment = self.ancestor(distance);
+        environment.put(name, value)
+    }
+
+    pub fn get_at(&self, distance: usize, name: &str) -> Result<Value> {
+        let environment = self.ancestor(distance);
+        environment.get(name)
+    }
 }

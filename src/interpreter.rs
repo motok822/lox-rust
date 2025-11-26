@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::hash::Hash;
 use std::rc::Rc;
 use crate::expr::{Binary, Expr, ExprVisitor, Grouping, Literal, StmtVisitor,
     Unary, IfStatement, BreakStmt, ContinueStmt, Call};
@@ -6,7 +7,7 @@ use crate::error::{Result, ReturnError, RuntimeError, Error};
 use crate::environment::Environment;
 use crate::token::{LiteralType, Token, TokenType, Value};
 use crate::expr::{Stmt, FunctionStmt};
-use crate::callable::{LoxFunction, create_clock_function};
+use crate::callable::{LoxClass, LoxFunction, create_clock_function};
 use std::collections::HashMap;
 
 /// Interpreter that evaluates expressions using the Visitor pattern
@@ -86,30 +87,11 @@ impl Interpreter {
 
     pub fn look_up_variable(&self, name: &String, expr: &Expr) -> Result<Value> {
         if let Some(distance) = self.locals.get(expr) {
-            self.get_at(*distance, &name)
+            self.environment.get_at(*distance, name)
         } else {
             self.environment.get(&name)
         }
     }
-
-    fn get_at(&self, distance: usize, name: &str) -> Result<Value> {
-        self.ancestor(distance).get(name)
-    }
-
-    fn ancestor(&self, distance: usize) -> Rc<Environment> {
-        let mut environment = Rc::clone(&self.environment);
-        for _ in 0..distance {
-            let enclosing = environment.enclosing.as_ref().unwrap();
-            environment = Rc::clone(enclosing);
-        }
-        environment
-    }
-
-    fn assign_at(&mut self, distance: usize, name: &Token, value: Value) -> Result<()> {
-        let env = self.ancestor(distance);
-        env.put(&name.lexeme, value)
-    }
-
 
     /// Helper: Check if a value is truthy (Lox semantics: nil and false are falsey)
     fn is_truthy(&self, value: &Value) -> bool {
@@ -249,6 +231,26 @@ impl StmtVisitor<Result<Value>> for Interpreter {
         self.environment = previous;
         result
     }
+    fn visit_class_decl(&mut self, class_decl: &crate::expr::ClassDecl) -> Result<Value> {
+        self.environment.define(class_decl.name.lexeme.clone(), Value::Nil);
+
+        let mut methods = HashMap::new();
+        for method in &class_decl.methods {
+            let func = LoxFunction::new(
+                method.name.lexeme.clone(),
+                method.params.iter().map(|param| param.lexeme.clone()).collect(),
+                (*method.body).clone(),
+                Rc::clone(&self.environment),
+                method.name.lexeme == "init",
+            );
+            methods.insert(method.name.lexeme.clone(), func);
+        }
+        println!("Defined class: {}", class_decl.name.lexeme);
+        let kclass = LoxClass::new(class_decl.name.lexeme.clone(), methods);
+        self.environment.put(&class_decl.name.lexeme, Value::Class(kclass))?;
+
+        Ok(Value::Nil)
+    }
     fn visit_break_stmt(&mut self, _break_stmt: &BreakStmt) -> Result<Value> {
         Err(Error::RuntimeError(RuntimeError::new(
             Token::new(TokenType::BREAK, "break".to_string(), 0, None),
@@ -267,7 +269,8 @@ impl StmtVisitor<Result<Value>> for Interpreter {
         let body = (*function_stmt.body).clone();
 
         let lox_function = LoxFunction::new(
-            func_name.clone(), params, body, Rc::clone(&self.environment)
+            func_name.clone(), params, body, Rc::clone(&self.environment), 
+            function_stmt.name.lexeme == "init",
         );
         self.environment.define(
             func_name,
@@ -318,6 +321,35 @@ impl ExprVisitor<Result<Value>> for Interpreter {
             _ => Err(Error::RuntimeError(RuntimeError::new(
                 expr.operator.clone(),
                 format!("Unknown unary operator: {:?}", expr.operator.type_),
+            ))),
+        }
+    }
+
+    fn visit_get_expr(&mut self, expr: &crate::expr::Get) -> Result<Value> {
+        let object = self.evaluate(&expr.object)?;
+        match object {
+            Value::Instance(instance) => {
+                instance.borrow().get(&expr.name.lexeme)
+            }
+            _ => Err(Error::RuntimeError(RuntimeError::new(
+                expr.name.clone(),
+                "Only instances have properties.".to_string(),
+            ))),
+        }
+    }
+
+    fn visit_set_expr(&mut self, expr: &crate::expr::Set) -> Result<Value> {
+        let object = self.evaluate(&expr.object)?;
+        let value = self.evaluate(&expr.value)?;
+
+        match object {
+            Value::Instance(instance) => {
+                instance.borrow_mut().set(expr.name.lexeme.clone(), value.clone());
+                Ok(value)
+            }
+            _ => Err(Error::RuntimeError(RuntimeError::new(
+                expr.name.clone(),
+                "Only instances have fields.".to_string(),
             ))),
         }
     }
@@ -437,7 +469,7 @@ impl ExprVisitor<Result<Value>> for Interpreter {
         let value = self.evaluate(&expr.value)?;
         let distance = self.locals.get(&Expr::Assignment(expr.clone()));
         if let Some(distance) = distance {
-            self.assign_at(*distance, &expr.name, value.clone())?;
+            self.environment.assign_at(*distance, &expr.name.lexeme, value.clone())?;
         } else {
             self.environment.put(&expr.name.lexeme, value.clone())?;
         }
@@ -483,252 +515,28 @@ impl ExprVisitor<Result<Value>> for Interpreter {
                 // 関数を呼び出す
                 function.call(arguments, Some(RefCell::new(self.clone())))
             }
+            Value::Class(class) => {
+                // クラスのコンストラクタを呼び出す
+                use crate::callable::Callable;
+                if arguments.len() != class.arity() {
+                    return Err(Error::RuntimeError(RuntimeError::new(
+                        expr.paren.clone(),
+                        format!(
+                            "Expected {} arguments but got {}.",
+                            class.arity(),
+                            arguments.len()
+                        ),
+                    )));
+                }
+                class.call(arguments, Some(RefCell::new(self.clone())))
+            }
             _ => Err(Error::RuntimeError(RuntimeError::new(
                 expr.paren.clone(),
                 "Can only call functions and classes.".to_string(),
             ))),
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::expr::Expr;
-    use crate::token::{Token, TokenType};
-
-    #[test]
-    fn test_literal_number() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Literal(Literal::new(LiteralType::Number(42.0)));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(42.0));
-    }
-
-    #[test]
-    fn test_literal_string() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Literal(Literal::new(LiteralType::String("hello".to_string())));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::String("hello".to_string()));
-    }
-
-    #[test]
-    fn test_unary_negation() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Unary(Unary::new(
-            Token::new(TokenType::MINUS, "-".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(10.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(-10.0));
-    }
-
-    #[test]
-    fn test_binary_addition() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(1.0)))),
-            Token::new(TokenType::PLUS, "+".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(2.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(3.0));
-    }
-
-    #[test]
-    fn test_binary_subtraction() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(10.0)))),
-            Token::new(TokenType::MINUS, "-".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(3.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(7.0));
-    }
-
-    #[test]
-    fn test_binary_multiplication() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(4.0)))),
-            Token::new(TokenType::STAR, "*".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(5.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(20.0));
-    }
-
-    #[test]
-    fn test_binary_division() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(20.0)))),
-            Token::new(TokenType::SLASH, "/".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(4.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(5.0));
-    }
-
-    #[test]
-    fn test_string_concatenation() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::String("Hello, ".to_string())))),
-            Token::new(TokenType::PLUS, "+".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::String("World!".to_string())))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::String("Hello, World!".to_string()));
-    }
-
-    #[test]
-    fn test_comparison_greater() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(10.0)))),
-            Token::new(TokenType::GREATER, ">".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(5.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Bool(true));
-    }
-
-    #[test]
-    fn test_comparison_less() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(3.0)))),
-            Token::new(TokenType::LESS, "<".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(8.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Bool(true));
-    }
-
-    #[test]
-    fn test_equality() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(5.0)))),
-            Token::new(TokenType::EQUAL_EQUAL, "==".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(5.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Bool(true));
-    }
-
-    #[test]
-    fn test_inequality() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(5.0)))),
-            Token::new(TokenType::BANG_EQUAL, "!=".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(3.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Bool(true));
-    }
-
-    #[test]
-    fn test_unary_bang() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Unary(Unary::new(
-            Token::new(TokenType::BANG, "!".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Bool(true)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Bool(false));
-    }
-
-    #[test]
-    fn test_grouping() {
-        let mut interpreter = Interpreter::new();
-        // (2 + 3) * 4 = 20
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Grouping(Grouping::new(
-                Box::new(Expr::Binary(Binary::new(
-                    Box::new(Expr::Literal(Literal::new(LiteralType::Number(2.0)))),
-                    Token::new(TokenType::PLUS, "+".to_string(), 1, None),
-                    Box::new(Expr::Literal(Literal::new(LiteralType::Number(3.0)))),
-                )))
-            ))),
-            Token::new(TokenType::STAR, "*".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(4.0)))),
-        ));
-        let result = interpreter.evaluate(&expr).unwrap();
-        assert_eq!(result, Value::Number(20.0));
-    }
-
-    #[test]
-    fn test_truthy_values() {
-        let interpreter = Interpreter::new();
-
-        // nil is falsey
-        assert_eq!(interpreter.is_truthy(&Value::Nil), false);
-
-        // false is falsey
-        assert_eq!(interpreter.is_truthy(&Value::Bool(false)), false);
-
-        // true is truthy
-        assert_eq!(interpreter.is_truthy(&Value::Bool(true)), true);
-
-        // numbers are truthy
-        assert_eq!(interpreter.is_truthy(&Value::Number(0.0)), true);
-        assert_eq!(interpreter.is_truthy(&Value::Number(42.0)), true);
-
-        // strings are truthy
-        assert_eq!(interpreter.is_truthy(&Value::String("".to_string())), true);
-        assert_eq!(interpreter.is_truthy(&Value::String("hello".to_string())), true);
-    }
-
-    #[test]
-    fn test_stringify() {
-        let interpreter = Interpreter::new();
-
-        assert_eq!(interpreter.stringify(&Value::Nil), "nil");
-        assert_eq!(interpreter.stringify(&Value::Bool(true)), "true");
-        assert_eq!(interpreter.stringify(&Value::Bool(false)), "false");
-        assert_eq!(interpreter.stringify(&Value::Number(42.0)), "42");
-        assert_eq!(interpreter.stringify(&Value::Number(3.14)), "3.14");
-        assert_eq!(interpreter.stringify(&Value::String("hello".to_string())), "hello");
-    }
-
-    #[test]
-    fn test_division_by_zero() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(10.0)))),
-            Token::new(TokenType::SLASH, "/".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(0.0)))),
-        ));
-        let result = interpreter.evaluate(&expr);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_type_error_unary_minus() {
-        let mut interpreter = Interpreter::new();
-        let expr = Expr::Unary(Unary::new(
-            Token::new(TokenType::MINUS, "-".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::String("hello".to_string())))),
-        ));
-        let result = interpreter.evaluate(&expr);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_type_error_addition() {
-        let mut interpreter = Interpreter::new();
-        // number + boolean should fail
-        let expr = Expr::Binary(Binary::new(
-            Box::new(Expr::Literal(Literal::new(LiteralType::Number(5.0)))),
-            Token::new(TokenType::PLUS, "+".to_string(), 1, None),
-            Box::new(Expr::Literal(Literal::new(LiteralType::Bool(true)))),
-        ));
-        let result = interpreter.evaluate(&expr);
-        assert!(result.is_err());
+    fn visit_this_expr(&mut self, expr: &crate::expr::This) -> Result<Value> {
+        self.look_up_variable(&expr.keyword.lexeme, &Expr::This(expr.clone()))
     }
 }

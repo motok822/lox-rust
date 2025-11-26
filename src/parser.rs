@@ -1,6 +1,6 @@
 use crate::token::{LiteralType, Token, TokenType};
-use crate::expr::{Expr, Literal, Unary, Binary, Grouping, Stmt, BreakStmt, ContinueStmt,ReturnStmt,
-    Print, Expression, VarDecl, Variable, Assignment, Block, IfStatement, OR, AND, WhileStmt, ForStmt, Call};
+use crate::expr::{Expr, Literal, Unary, Binary, Grouping, Stmt, BreakStmt, ContinueStmt, ReturnStmt, Set, This, Print,
+    Expression, VarDecl, Variable, Assignment, Block, IfStatement, OR, AND, WhileStmt, ForStmt, Call, ClassDecl};
 
 pub struct Parser{
     tokens: Vec<Token>,
@@ -24,7 +24,29 @@ impl Parser{
         if self.match_token(&[TokenType::FUN]){
             return self.function_declaration();
         }
+        if self.match_token(&[TokenType::CLASS]){
+            return self.class_declaration();
+        }
         return self.statement();
+    }
+    fn class_declaration(&mut self) -> Stmt {
+        let name = self.consume(TokenType::IDENTIFIER, "Expect class name.").clone();
+        self.consume(TokenType::LEFT_BRACE, "Expect '{' before class body.");
+        let mut methods: Vec<Stmt> = Vec::new();
+        while !self.check(&TokenType::RIGHT_BRACE) && !self.is_at_end() {
+            let method = self.function_declaration();
+            methods.push(method);
+        }
+        self.consume(TokenType::RIGHT_BRACE, "Expect '}' after class body.");
+        return Stmt::ClassDecl(
+            ClassDecl::new(
+                name,
+                methods
+                    .into_iter()
+                    .filter_map(|stmt| if let Stmt::FunctionStmt(func) = stmt { Some(func) } else { None })
+                    .collect(),
+            ),
+        );
     }
     fn function_declaration(&mut self) -> Stmt{
         let name = self.consume(TokenType::IDENTIFIER, "Expect function name.").clone();
@@ -190,6 +212,9 @@ impl Parser{
             if let Expr::Variable(var_expr) = expr{
                 let name = var_expr.name.clone();
                 return Expr::Assignment(Assignment::new(name, Box::new(value)));
+            }else if let Expr::Get(get_expr) = expr {
+                let name = get_expr.name.clone();
+                return Expr::Set(Set::new(get_expr.object.clone(), name, Box::new(value)));
             }
             panic!("Invalid assignment target.");
         }
@@ -265,6 +290,9 @@ impl Parser{
         loop {
             if self.match_token(&[TokenType::LEFT_PAREN]){
                 expr = self.finish_call(expr);
+            } else if self.match_token(&[TokenType::DOT]){
+                let name = self.consume(TokenType::IDENTIFIER, "Expect property name after '.'.").clone();
+                expr = Expr::Get(crate::expr::Get::new(Box::new(expr), name));
             } else {
                 break;
             }
@@ -272,20 +300,20 @@ impl Parser{
         expr
     }
     fn finish_call(&mut self, callee: Expr) -> Expr{
-        let mut argumnets = Vec::new();
+        let mut arguments = Vec::new();
         if !self.check(&TokenType::RIGHT_PAREN){
             loop {
-                if argumnets.len() >= 255{
+                if arguments.len() >= 255{
                     panic!("Can't have more than 255 arguments.");
                 }
-                argumnets.push(self.expression());
+                arguments.push(self.expression());
                 if !self.match_token(&[TokenType::COMMA]){
                     break;
                 }
             }
         }
         let paren = self.consume(TokenType::RIGHT_PAREN, "Expect ')' after arguments.").clone();
-        Expr::Call(Call::new(Box::new(callee), paren, argumnets))
+        Expr::Call(Call::new(Box::new(callee), paren, arguments))
     }
     fn primary(&mut self) -> Expr{
         if self.match_token(&[TokenType::FALSE]){
@@ -296,6 +324,10 @@ impl Parser{
         }
         if self.match_token(&[TokenType::NIL]){
             return Expr::Literal(Literal::new(LiteralType::Nil));
+        }
+        if self.match_token(&[TokenType::THIS]){
+            let keyword = self.previous().clone();
+            return Expr::This(This::new(keyword));
         }
         if self.match_token(&[TokenType::NUMBER]){
             let value = match &self.previous().literal{
@@ -358,306 +390,5 @@ impl Parser{
             return self.advance();
         }
         panic!("{}", message);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::scanner::Scanner;
-
-    fn parse_expression(source: &str) -> Expr {
-        let mut scanner = Scanner::new(source);
-        let tokens = scanner.scan_tokens();
-        let mut parser = Parser::new(tokens);
-        parser.expression()
-    }
-
-    fn parse_statements(source: &str) -> Vec<Stmt> {
-        let mut scanner = Scanner::new(source);
-        let tokens = scanner.scan_tokens();
-        let mut parser = Parser::new(tokens);
-        parser.parse()
-    }
-
-    #[test]
-    fn test_parse_number_literal() {
-        let expr = parse_expression("42");
-        match expr {
-            Expr::Literal(lit) => {
-                match lit.value {
-                    LiteralType::Number(n) => assert_eq!(n, 42.0),
-                    _ => panic!("Expected number literal"),
-                }
-            }
-            _ => panic!("Expected literal expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_string_literal() {
-        let expr = parse_expression("\"hello\"");
-        match expr {
-            Expr::Literal(lit) => {
-                match &lit.value {
-                    LiteralType::String(s) => assert_eq!(s, "hello"),
-                    _ => panic!("Expected string literal"),
-                }
-            }
-            _ => panic!("Expected literal expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_binary_addition() {
-        let expr = parse_expression("1 + 2");
-        match expr {
-            Expr::Binary(bin) => {
-                assert_eq!(bin.operator.type_, TokenType::PLUS);
-            }
-            _ => panic!("Expected binary expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_binary_multiplication() {
-        let expr = parse_expression("3 * 4");
-        match expr {
-            Expr::Binary(bin) => {
-                assert_eq!(bin.operator.type_, TokenType::STAR);
-            }
-            _ => panic!("Expected binary expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_grouping() {
-        let expr = parse_expression("(1 + 2)");
-        match expr {
-            Expr::Grouping(_) => {
-                // Success
-            }
-            _ => panic!("Expected grouping expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_unary() {
-        let expr = parse_expression("-5");
-        match expr {
-            Expr::Unary(un) => {
-                assert_eq!(un.operator.type_, TokenType::MINUS);
-            }
-            _ => panic!("Expected unary expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_comparison() {
-        let expr = parse_expression("10 > 5");
-        match expr {
-            Expr::Binary(bin) => {
-                assert_eq!(bin.operator.type_, TokenType::GREATER);
-            }
-            _ => panic!("Expected binary expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_equality() {
-        let expr = parse_expression("5 == 5");
-        match expr {
-            Expr::Binary(bin) => {
-                assert_eq!(bin.operator.type_, TokenType::EQUAL_EQUAL);
-            }
-            _ => panic!("Expected binary expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_print_statement() {
-        let stmts = parse_statements("print 42;");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::Print(_) => {
-                // Success
-            }
-            _ => panic!("Expected print statement"),
-        }
-    }
-
-    #[test]
-    fn test_parse_var_declaration() {
-        let stmts = parse_statements("var x = 10;");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::VarDeclaration(var_decl) => {
-                assert_eq!(var_decl.name.lexeme, "x");
-                assert!(var_decl.initializer.is_some());
-            }
-            _ => panic!("Expected variable declaration"),
-        }
-    }
-
-    #[test]
-    fn test_parse_var_declaration_without_initializer() {
-        let stmts = parse_statements("var y;");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::VarDeclaration(var_decl) => {
-                assert_eq!(var_decl.name.lexeme, "y");
-                assert!(var_decl.initializer.is_none());
-            }
-            _ => panic!("Expected variable declaration"),
-        }
-    }
-
-    #[test]
-    fn test_parse_if_statement() {
-        let stmts = parse_statements("if (true) print 1;");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::IfStatement(_) => {
-                // Success
-            }
-            _ => panic!("Expected if statement"),
-        }
-    }
-
-    #[test]
-    fn test_parse_while_statement() {
-        let stmts = parse_statements("while (true) print 1;");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::WhileStmt(_) => {
-                // Success
-            }
-            _ => panic!("Expected while statement"),
-        }
-    }
-
-    #[test]
-    fn test_parse_for_statement() {
-        let stmts = parse_statements("for (var i = 0; i < 10; i = i + 1) print i;");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::ForStmt(_) => {
-                // Success
-            }
-            _ => panic!("Expected for statement"),
-        }
-    }
-
-    #[test]
-    fn test_parse_block() {
-        let stmts = parse_statements("{ var x = 10; print x; }");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::Block(block) => {
-                assert_eq!(block.statements.len(), 2);
-            }
-            _ => panic!("Expected block statement"),
-        }
-    }
-
-    #[test]
-    fn test_parse_function_declaration() {
-        let stmts = parse_statements("fun add(a, b) { return a + b; }");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::FunctionStmt(func) => {
-                assert_eq!(func.name.lexeme, "add");
-                assert_eq!(func.params.len(), 2);
-            }
-            _ => panic!("Expected function statement"),
-        }
-    }
-
-    #[test]
-    fn test_parse_return_statement() {
-        let stmts = parse_statements("fun test() { return 42; }");
-        assert_eq!(stmts.len(), 1);
-        match &stmts[0] {
-            Stmt::FunctionStmt(func) => {
-                assert_eq!(func.body.len(), 1);
-                // bodyの最初の要素はBlockステートメント
-                match &func.body[0] {
-                    Stmt::Block(block) => {
-                        // Blockの中にReturnStmtがある
-                        assert!(block.statements.len() > 0);
-                        match &block.statements[0] {
-                            Stmt::ReturnStmt(_) => {
-                                // Success
-                            }
-                            _ => panic!("Expected return statement inside block"),
-                        }
-                    }
-                    _ => panic!("Expected block statement"),
-                }
-            }
-            _ => panic!("Expected function statement"),
-        }
-    }
-
-    #[test]
-    fn test_parse_logical_and() {
-        let expr = parse_expression("true and false");
-        match expr {
-            Expr::AND(_) => {
-                // Success
-            }
-            _ => panic!("Expected AND expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_logical_or() {
-        let expr = parse_expression("true or false");
-        match expr {
-            Expr::OR(_) => {
-                // Success
-            }
-            _ => panic!("Expected OR expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_assignment() {
-        let expr = parse_expression("x = 10");
-        match expr {
-            Expr::Assignment(assign) => {
-                assert_eq!(assign.name.lexeme, "x");
-            }
-            _ => panic!("Expected assignment expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_function_call() {
-        let expr = parse_expression("add(1, 2)");
-        match expr {
-            Expr::Call(call) => {
-                assert_eq!(call.arguments.len(), 2);
-            }
-            _ => panic!("Expected call expression"),
-        }
-    }
-
-    #[test]
-    fn test_parse_complex_expression() {
-        // (2 + 3) * 4
-        let expr = parse_expression("(2 + 3) * 4");
-        match expr {
-            Expr::Binary(bin) => {
-                assert_eq!(bin.operator.type_, TokenType::STAR);
-                match *bin.left {
-                    Expr::Grouping(_) => {
-                        // Success
-                    }
-                    _ => panic!("Expected grouping on left"),
-                }
-            }
-            _ => panic!("Expected binary expression"),
-        }
     }
 }

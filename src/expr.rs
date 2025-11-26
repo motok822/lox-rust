@@ -25,6 +25,7 @@ pub trait StmtVisitor<R> {
     fn visit_continue_stmt(&mut self, _continue_stmt: &ContinueStmt) -> R;
     fn visit_function_stmt(&mut self, function_stmt: &FunctionStmt) -> R;
     fn visit_return_stmt(&mut self, return_stmt: &ReturnStmt) -> R;
+    fn visit_class_decl(&mut self, class_decl: &ClassDecl) -> R;    
 }
 #[derive(Debug, Clone)]
 pub enum Stmt {
@@ -39,6 +40,7 @@ pub enum Stmt {
     ContinueStmt(ContinueStmt),
     FunctionStmt(FunctionStmt),
     ReturnStmt(ReturnStmt),
+    ClassDecl(ClassDecl),
 }
 
 impl Stmt {
@@ -55,9 +57,21 @@ impl Stmt {
             Stmt::ContinueStmt(continue_stmt) => visitor.visit_continue_stmt(continue_stmt),
             Stmt::FunctionStmt(function_stmt) => visitor.visit_function_stmt(function_stmt),
             Stmt::ReturnStmt(return_stmt) => visitor.visit_return_stmt(return_stmt),
+            Stmt::ClassDecl(class_decl) => visitor.visit_class_decl(class_decl),
         }
     }
 }
+#[derive(Debug, Clone)]
+pub struct ClassDecl {
+    pub name: Token,
+    pub methods: Vec<FunctionStmt>,
+}
+impl ClassDecl {
+    pub fn new(name: Token, methods: Vec<FunctionStmt>) -> Self {
+        Self { name, methods }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ReturnStmt {
     pub keyword: Token,
@@ -172,6 +186,9 @@ pub trait ExprVisitor<R> {
     fn visit_or_expr(&mut self, expr: &OR) -> R;
     fn visit_and_expr(&mut self, expr: &AND) -> R;
     fn visit_call_expr(&mut self, expr: &Call) -> R;
+    fn visit_get_expr(&mut self, expr: &Get) -> R;
+    fn visit_set_expr(&mut self, expr: &Set) -> R;
+    fn visit_this_expr(&mut self, expr: &This) -> R;
 }
 
 
@@ -184,6 +201,9 @@ pub enum Expr {
     Unary(Unary),
     Variable(Variable),
     Assignment(Assignment),
+    Get(Get),
+    Set(Set),
+    This(This),
     Call(Call),
     OR(OR),
     AND(AND),
@@ -230,6 +250,18 @@ impl Hash for Expr {
                 8u8.hash(state);
                 e.hash(state);
             }
+            Expr::Set(e) => {
+                9u8.hash(state);
+                e.hash(state);
+            }
+            Expr::Get(e) => {
+                10u8.hash(state);
+                e.hash(state);
+            }
+            Expr::This(e) => {
+                11u8.hash(state);
+                e.hash(state);
+            }
         }
     }
 }
@@ -246,7 +278,67 @@ impl Expr {
             Expr::OR(expr) => visitor.visit_or_expr(expr),
             Expr::AND(expr) => visitor.visit_and_expr(expr),
             Expr::Call(expr) => visitor.visit_call_expr(expr),
+            Expr::Get(expr) => visitor.visit_get_expr(expr),
+            Expr::Set(expr) => visitor.visit_set_expr(expr),
+            Expr::This(expr) => visitor.visit_this_expr(expr) 
         }
+    }
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct This {
+    pub keyword: Token,
+}
+impl This {
+    pub fn new(keyword: Token) -> Self {
+        Self { keyword }
+    }
+    
+}
+impl Eq for This {}
+
+impl Hash for This {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.keyword.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Set{
+    pub object: Box<Expr>,
+    pub name: Token,
+    pub value: Box<Expr>,
+}
+impl Set {
+    pub fn new(object: Box<Expr>, name: Token, value: Box<Expr>) -> Self {
+        Self { object, name, value }
+    }
+}   
+impl Eq for Set {}
+impl Hash for Set {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.object.hash(state);
+        self.name.hash(state);
+        self.value.hash(state);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Get{
+    pub object: Box<Expr>,
+    pub name: Token,
+}
+impl Get {
+    pub fn new(object: Box<Expr>, name: Token) -> Self {
+        Self { object, name }
+    }
+}
+
+impl Eq for Get {}
+
+impl Hash for Get {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.object.hash(state);
+        self.name.hash(state);
     }
 }
 

@@ -1,6 +1,9 @@
+use std::cell::RefCell;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use crate::callable::LoxCallable;
+use crate::callable::{LoxCallable, LoxInstance, LoxClass};
+use std::rc::Rc;
+use crate::lox::Lox;
 
 /// Runtime value type for the interpreter
 #[derive(Debug, Clone, PartialEq)]
@@ -10,6 +13,8 @@ pub enum Value {
     Bool(bool),
     Nil,
     Callable(LoxCallable),
+    Instance(Rc<RefCell<LoxInstance>>),
+    Class(LoxClass),
 }
 
 impl fmt::Display for Value {
@@ -20,6 +25,8 @@ impl fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", b),
             Value::Nil => write!(f, "nil"),
             Value::Callable(callable) => write!(f, "<fn {}>", callable.name()),
+            Value::Instance(instance) => write!(f, "<instance of {}>", instance.borrow().class.name),
+            Value::Class(class) => write!(f, "<class {}>", class.name),
         }
     }
 }

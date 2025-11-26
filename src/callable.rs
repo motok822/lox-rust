@@ -4,8 +4,11 @@ use crate::interpreter::Interpreter;
 use crate::expr::Stmt;
 use crate::environment::Environment;
 use crate::error::{RuntimeError, Error};
+use std::rc::Rc;
+use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
 use std::cell::Ref;
-use std::{cell::RefCell, rc::Rc, time::{SystemTime, UNIX_EPOCH}};
+use std::{cell::RefCell, time::{SystemTime, UNIX_EPOCH}};
 
 /// Loxの呼び出し可能オブジェクト（関数）を表すenum
 
@@ -44,17 +47,105 @@ impl Callable for NativeFunction {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+pub struct LoxClass {
+    pub name: String,
+    pub methods: HashMap<String, LoxFunction>,
+}
+
+impl PartialEq for LoxClass {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl LoxClass{
+    pub fn new(name: String, methods: HashMap<String, LoxFunction>) -> Self{
+        Self { name, methods }
+    }
+
+    pub fn find_method(&self, name: &str) -> Option<&LoxFunction> {
+        self.methods.get(name)
+    }
+}
+impl Callable for LoxClass {
+    fn arity(&self) -> usize {
+        0
+    }
+    fn call(&self, _arguments: Vec<Value>, _interpreter: Option<RefCell<Interpreter>>) -> Result<Value> {
+        let instance = LoxInstance::new(Rc::new(self.clone()));
+        Ok(Value::Instance(Rc::new(RefCell::new(instance))))
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct LoxInstance {
+    pub class: Rc<LoxClass>,
+    pub fields: HashMap<String, Value>,
+}
+
+impl LoxInstance {
+    pub fn new(class: Rc<LoxClass>) -> Self{
+        Self { class, fields: HashMap::new() }
+    }
+
+    pub fn class(&self) -> &LoxClass {
+        &self.class
+    }
+
+    pub fn to_string(&self) -> String {
+        format!("{} instance", self.class.name)
+    }
+
+    pub fn get(&self, name: &str) -> Result<Value> {
+        if self.fields.contains_key(name) {
+            return Ok(self.fields.get(name).unwrap().clone());
+        }
+        let method = self.class.find_method(name);
+        if let Some(method) = method {
+            return Ok(method.bind(Rc::new(RefCell::new(self.clone()))))
+        }
+
+        return Err(Error::RuntimeError(RuntimeError::new(
+            crate::token::Token::new(crate::token::TokenType::IDENTIFIER, name.to_string(), 0, None),
+            format!("Undefined property '{}'.", name),
+        )));
+    }
+
+    pub fn set(&mut self, name: String, value: Value) {
+        self.fields.insert(name, value);
+    }
+}
+
+impl PartialEq for LoxInstance {
+    fn eq(&self, other: &Self) -> bool {
+        // より厳密には、同じインスタンス（参照の同一性）を確認すべきですが、
+        // ここでは簡易的に同じクラスかどうかで判定します
+        Rc::ptr_eq(&self.class, &other.class)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct LoxFunction {
     name: String,
     params: Vec<String>,
     body: Vec<Stmt>,
     closure: Rc<Environment>,
+    is_initializer: bool,
 }
 impl LoxFunction {
     /// 新しいLoxFunctionを作成する
-    pub fn new(name: String, params: Vec<String>, body: Vec<Stmt>, closure: Rc<Environment>) -> Self {
-        Self { name, params, body, closure }
+    pub fn new(name: String, params: Vec<String>, body: Vec<Stmt>, closure: Rc<Environment>, is_initializer: bool) -> Self {
+        Self { name, params, body, closure, is_initializer }
+    }
+
+    pub fn bind(&self, instance: Rc<RefCell<LoxInstance>>) -> Value {
+        let env = Rc::new(Environment::new(Some(Rc::clone(&self.closure))));
+        env.define("this".to_string(), Value::Instance(Rc::clone(&instance)));
+        Value::Callable(LoxCallable::LoxFunction(LoxFunction::new(self.name.clone(), self.params.clone(), self.body.clone(), env, self.is_initializer)))
     }
 }
 
@@ -76,9 +167,14 @@ impl Callable for LoxFunction {
                 Err(err) => match err {
                     Error::ReturnError(return_err) => {
                         if let Some(value) = return_err.value {
-                            Ok(value)
+                            if self.is_initializer {
+                                // イニシャライザの場合、常にthisを返す
+                                let this = self.closure.get("this")?;
+                                return Ok(this);
+                            }
+                            return Ok(value);
                         } else {
-                            Ok(Value::Nil)
+                            return Ok(Value::Nil);
                         }
                     }
                     _ => Err(err),

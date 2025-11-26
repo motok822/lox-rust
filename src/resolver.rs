@@ -1,7 +1,7 @@
 use std::{rc::Rc};
 use crate::token::Token;
 use crate::expr::{Assignment, Expr, ExprVisitor, Expression, FunctionStmt, Stmt, StmtVisitor, VarDecl, Variable
-};
+, ClassDecl};
 
 use crate::{expr::Block, interpreter::Interpreter};
 use std::collections::HashMap;
@@ -11,18 +11,26 @@ use std::cell::RefCell;
 enum FunctionType{
     None,
     Function,
+    Method,
+    Initializer,
+}
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum ClassType{
+    None,
+    Class,
 }
 
 pub struct Resolver{
     interpreter: Rc<RefCell<Interpreter>>,
     scopes: Vec<HashMap<String, bool>>,
     current_function: FunctionType,
+    current_class: ClassType,
 }
 
 impl Resolver {
     pub fn new(interpreter: Rc<RefCell<Interpreter>>) -> Self {
         let scope = HashMap::new();
-        Self { interpreter, scopes: vec![scope], current_function: FunctionType::None }
+        Self { interpreter, scopes: vec![scope], current_function: FunctionType::None, current_class: ClassType::None }
     }
     fn begin_scope(&mut self) {
         self.scopes.push(HashMap::new());
@@ -122,6 +130,9 @@ impl StmtVisitor<()> for Resolver {
             panic!("Cannot return from top-level code.");
         }
         if let Some(value) = &return_stmt.value {
+            if self.current_function == FunctionType::Initializer {
+                panic!("Cannot return a value from an initializer.");
+            }
             self.resolve_expression(value);
         }
         return ();
@@ -147,6 +158,21 @@ impl StmtVisitor<()> for Resolver {
         }
         self.resolve_statement(&for_stmt.body);
         self.end_scope();
+    }
+    fn visit_class_decl(&mut self, class_decl: &ClassDecl) -> () {
+        let enclosing_class = self.current_class;
+        self.current_class = ClassType::Class;
+        self.declare(&class_decl.name);
+        self.begin_scope();
+        self.scopes.last_mut().unwrap().insert("this".to_string(), true);
+        for method in &class_decl.methods {
+            let declaration = FunctionType::Method;
+            self.resolve_function(method, declaration);
+        }
+        self.end_scope();
+        self.define(&class_decl.name);
+        self.current_class = enclosing_class;
+        return ();
     }
 }
 impl ExprVisitor<()> for Resolver {
@@ -198,6 +224,22 @@ impl ExprVisitor<()> for Resolver {
     fn visit_or_expr(&mut self, expr: &crate::expr::OR) -> () {
         self.resolve_expression(&expr.left);
         self.resolve_expression(&expr.right);
+        return ();
+    }
+    fn visit_get_expr(&mut self, expr: &crate::expr::Get) -> () {
+        self.resolve_expression(&expr.object);
+        return ();
+    }
+    fn visit_set_expr(&mut self, expr: &crate::expr::Set) -> () {
+        self.resolve_expression(&expr.value);
+        self.resolve_expression(&expr.object);
+        return ();
+    }
+    fn visit_this_expr(&mut self, expr: &crate::expr::This) -> () {
+        if self.current_class == ClassType::None {
+            panic!("Cannot use 'this' outside of a class.");
+        }
+        self.resolve_local(&Expr::This(expr.clone()), &expr.keyword);
         return ();
     }
 }
